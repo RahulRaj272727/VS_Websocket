@@ -76,6 +76,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -90,6 +91,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -104,7 +106,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket;D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket\third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -125,7 +127,7 @@ copy "C:\Program Files\OpenSSL-Win64\bin\libssl-3-x64.dll" "$(OutDir)" /Y</Comma
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket\ixwebsocket;D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\ALL_BINS\TallyIXWebSocketPOC\IXWebSocket</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
