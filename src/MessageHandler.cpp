@@ -98,8 +98,7 @@ void MessageRouter::RouteBinaryData(const uint8_t* data, size_t size)
     if (!data || size == 0)
     {
         Logger::Instance().Warning("MessageRouter", 
-            "Invalid binary chunk: " + 
-            (data ? "empty" : "null pointer"));
+            std::string("Invalid binary chunk: ") + (data ? "empty" : "null pointer"));
         return;
     }
 
