@@ -242,6 +242,15 @@ public:
     ConnectionState GetState() const;
 
     /**
+     * @brief Get the current connection state as a human-readable string.
+     * 
+     * Useful for debugging and logging purposes.
+     * 
+     * @return String representation of current state (e.g., "Connected", "Disconnected")
+     */
+    std::string GetStateString() const;
+
+    /**
      * @brief Set the handler for receiving parsed protocol messages.
      * 
      * Registers an IMessageHandler implementation that will receive callbacks

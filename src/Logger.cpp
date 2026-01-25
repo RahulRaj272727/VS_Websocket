@@ -18,11 +18,22 @@ Logger& Logger::Instance()
     return instance;
 }
 
+void Logger::SetMinLevel(Level level)
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+    mMinLevel = level;
+}
+
 void Logger::Log(Level level, const std::string& tag, const std::string& message)
 {
     // Lock the mutex to ensure exclusive access to std::cout
     // The lock is automatically released when lock_guard goes out of scope
     std::lock_guard<std::mutex> lock(mMutex);
+    
+    // Check if this message meets the minimum log level threshold
+    // Level order: Debug(0) < Info(1) < Warning(2) < Error(3)
+    if (static_cast<int>(level) < static_cast<int>(mMinLevel))
+        return;  // Skip messages below minimum level
     
     // Format: "HH:MM:SS.mmm [LVL][TAG] message"
     // Example: "14:23:45.123 [INF][WsClient] Connected to server"

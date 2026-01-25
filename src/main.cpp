@@ -56,12 +56,20 @@ public:
      */
     void OnTextMessage(const Protocol::Message& msg) override
     {
-        // Log the message details
+        // Log the message details using the new helper function
         Logger::Instance().Info("App", 
             "Received text message - Type: " + 
-            std::to_string(static_cast<int>(msg.type)) + 
+            Protocol::MessageTypeToString(msg.type) + 
             ", MsgID: " + msg.msgId + 
             ", Content: " + msg.content);
+        
+        // Validate the message using the new helper
+        if (!Protocol::IsValidMessage(msg))
+        {
+            Logger::Instance().Warning("App",
+                "Received invalid or incomplete message");
+            return;
+        }
         
         // In a real application, switch on message type and handle accordingly
         // Example:
@@ -191,12 +199,20 @@ int main()
 {
     // === INITIALIZATION ===
     
+    // Configure logging level (Debug shows everything, Info hides debug messages)
+    // For production, use Logger::Level::Warning to reduce noise
+#ifdef NDEBUG
+    Logger::Instance().SetMinLevel(Logger::Level::Info);  // Release: less verbose
+#else
+    Logger::Instance().SetMinLevel(Logger::Level::Debug); // Debug: show everything
+#endif
+    
     Logger::Instance().Info("Main", 
-        "====================================");
+        "====================================================");
     Logger::Instance().Info("Main", 
-        "TallyIX WebSocket POC - Starting");
+        "  TallyIX WebSocket POC - v2.0");
     Logger::Instance().Info("Main", 
-        "====================================");
+        "====================================================");
 
     // Create protocol configuration
     // These settings can be adjusted based on your network conditions and data sizes
@@ -258,6 +274,8 @@ int main()
 
     Logger::Instance().Info("Main", 
         "Connected to server successfully!");
+    Logger::Instance().Debug("Main",
+        "Connection state: " + client.GetStateString());
 
     // === PROTOCOL COMMUNICATION ===
 
@@ -346,11 +364,13 @@ int main()
     client.Close();
 
     Logger::Instance().Info("Main", 
-        "====================================");
+        "Final state: " + client.GetStateString());
     Logger::Instance().Info("Main", 
-        "TallyIX WebSocket POC - Complete");
+        "====================================================");
     Logger::Instance().Info("Main", 
-        "====================================");
+        "  TallyIX WebSocket POC - Complete");
+    Logger::Instance().Info("Main", 
+        "====================================================");
 
     return 0;  // Success!
 }

@@ -87,6 +87,29 @@ namespace Protocol
     };
 
     /**
+     * @brief Convert MessageType enum to human-readable string.
+     * 
+     * Useful for debugging and logging purposes. Returns the string representation
+     * of the message type (e.g., "Hello", "BinaryStart", etc.).
+     * 
+     * @param type The MessageType enum value to convert
+     * @return String representation of the message type
+     */
+    std::string MessageTypeToString(MessageType type);
+
+    /**
+     * @brief Check if a message is valid (has required fields).
+     * 
+     * A valid message must have:
+     * - A known type (not Unknown)
+     * - A non-empty message ID
+     * 
+     * @param msg The message to validate
+     * @return true if the message is valid, false otherwise
+     */
+    bool IsValidMessage(const Message& msg);
+
+    /**
      * @brief Parses a JSON-formatted string into a typed Protocol::Message.
      * 
      * This function extracts protocol message information from JSON format and converts

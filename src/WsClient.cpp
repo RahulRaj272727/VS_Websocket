@@ -162,22 +162,44 @@ bool WsClient::WaitForConnection(int timeoutMs)
     
     // Wait until one of these happens:
     // 1. Timeout expires (returns false)
-    // 2. Predicate becomes true: state == Connected (returns true)
-    // 3. Spurious wakeup (we loop again due to predicate check)
-    bool connected = mImpl->stateCV.wait_for(lock, 
+    // 2. State becomes Connected (returns true)
+    // 3. State becomes Error (returns false - don't keep waiting)
+    // 4. Spurious wakeup (we loop again due to predicate check)
+    bool stateChanged = mImpl->stateCV.wait_for(lock, 
         std::chrono::milliseconds(timeoutMs),
-        [this]() { return mImpl->state == ConnectionState::Connected; });
+        [this]() { 
+            return mImpl->state == ConnectionState::Connected ||
+                   mImpl->state == ConnectionState::Error ||
+                   mImpl->state == ConnectionState::Disconnected;
+        });
 
-    if (connected)
+    // Check final state after waiting
+    if (mImpl->state == ConnectionState::Connected)
     {
         Logger::Instance().Info("WsClient", 
             "Successfully connected to server");
         return true;
     }
-
-    Logger::Instance().Error("WsClient", 
-        "Connection timeout or error after " + 
-        std::to_string(timeoutMs) + "ms");
+    
+    // Determine reason for failure
+    if (mImpl->state == ConnectionState::Error)
+    {
+        Logger::Instance().Error("WsClient", 
+            "Connection failed with error");
+    }
+    else if (!stateChanged)
+    {
+        Logger::Instance().Error("WsClient", 
+            "Connection timeout after " + 
+            std::to_string(timeoutMs) + "ms");
+    }
+    else
+    {
+        Logger::Instance().Error("WsClient", 
+            "Connection failed - unexpected state: " + 
+            std::to_string(static_cast<int>(mImpl->state)));
+    }
+    
     return false;
 }
 
@@ -252,6 +274,20 @@ WsClient::ConnectionState WsClient::GetState() const
     // Atomic read of current state
     std::lock_guard<std::mutex> lock(mImpl->stateMutex);
     return mImpl->state;
+}
+
+std::string WsClient::GetStateString() const
+{
+    ConnectionState state = GetState();
+    switch (state)
+    {
+    case ConnectionState::Disconnected: return "Disconnected";
+    case ConnectionState::Connecting:   return "Connecting";
+    case ConnectionState::Connected:    return "Connected";
+    case ConnectionState::Closing:      return "Closing";
+    case ConnectionState::Error:        return "Error";
+    default:                            return "Unknown";
+    }
 }
 
 void WsClient::SetMessageHandler(IMessageHandler* handler)

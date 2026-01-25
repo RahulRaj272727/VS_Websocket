@@ -64,6 +64,20 @@ public:
     static Logger& Instance();
 
     /**
+     * @brief Set the minimum log level to display.
+     * 
+     * Messages below this level will be silently ignored. Useful for reducing
+     * noise in production builds while keeping verbose logging in debug builds.
+     * 
+     * @param level Minimum level to display (Debug shows all, Error shows only errors)
+     * 
+     * @example
+     *   // In production, only show warnings and errors
+     *   Logger::Instance().SetMinLevel(Logger::Level::Warning);
+     */
+    void SetMinLevel(Level level);
+
+    /**
      * @brief Log a message with specified severity level and tag.
      * 
      * @param level The severity level (Debug, Info, Warning, Error)
@@ -128,7 +142,10 @@ private:
     Logger& operator=(const Logger&) = delete;
 
     /// @brief Mutex protecting concurrent access to std::cout
-    std::mutex mMutex;
+    mutable std::mutex mMutex;
+
+    /// @brief Minimum log level to display (messages below this are ignored)
+    Level mMinLevel = Level::Debug;
 
     /**
      * @brief Generate current timestamp as string with milliseconds.

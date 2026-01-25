@@ -8,13 +8,15 @@ This project demonstrates a robust WebSocket client built on top of **IXWebSocke
 
 ### Key Features
 
-- ✅ **Thread-Safe Logging**: Mutex-protected stdout access prevents interleaved output
+- ✅ **Thread-Safe Logging**: Mutex-protected stdout access with configurable log levels
 - ✅ **State Machine**: Proper connection lifecycle management (Disconnected → Connecting → Connected → Closing)
-- ✅ **Synchronization Primitives**: Condition variables for blocking waits with timeout
+- ✅ **Synchronization Primitives**: Condition variables for blocking waits with timeout and error detection
 - ✅ **Protocol Abstraction**: Typed messages decouple application from JSON wire format
 - ✅ **Message Routing**: Observer pattern separates transport from business logic
 - ✅ **Exception-Safe**: `std::unique_ptr` for automatic resource cleanup
 - ✅ **Automatic DLL Deployment**: Post-build events copy OpenSSL DLLs to output directory
+- ✅ **Helper Functions**: `MessageTypeToString()`, `IsValidMessage()`, `GetStateString()` for debugging
+- ✅ **Configurable Logging**: `SetMinLevel()` to filter log output for production/debug builds
 
 ## Architecture
 
@@ -129,9 +131,15 @@ WsClient client(config);
 MyMessageHandler handler;
 client.SetMessageHandler(&handler);
 
+// Configure logging level for production
+Logger::Instance().SetMinLevel(Logger::Level::Info);
+
 client.Open();                         // Initialize
 client.Connect("ws://host:port");      // Non-blocking
-if (!client.WaitForConnection(10000)) { /* timeout */ }
+if (!client.WaitForConnection(10000)) { /* timeout or error */ }
+
+// Check connection state
+std::cout << "State: " << client.GetStateString() << std::endl;
 
 client.SendText(json);
 client.SendBinary(data, size);
@@ -144,6 +152,14 @@ client.Close();  // Graceful shutdown
 class MyHandler : public IMessageHandler {
 public:
     void OnTextMessage(const Protocol::Message& msg) override {
+        // Use helper function for better logging
+        std::cout << "Type: " << Protocol::MessageTypeToString(msg.type) << std::endl;
+        
+        // Validate message before processing
+        if (!Protocol::IsValidMessage(msg)) {
+            // Handle invalid message
+            return;
+        }
         // Handle hello, ack, error
     }
     
@@ -194,11 +210,37 @@ All messages are JSON with the following structure:
 
 | Component | Access Model | Synchronization |
 |-----------|--------------|-----------------|
-| Logger | Singleton | Mutex (lock_guard) |
+| Logger | Singleton | Mutex (lock_guard) + Min Level Filter |
 | WsClient state | Shared (main + IXWs) | Mutex + Condition Variable |
 | MessageRouter | Called from IXWs | No mutex (callback-only writes) |
 | Protocol | Stateless | None needed |
 | IMessageHandler | Called from IXWs | App responsible for internal sync |
+
+## API Quick Reference
+
+### Protocol Helpers
+```cpp
+// Convert MessageType to readable string
+std::string typeStr = Protocol::MessageTypeToString(msg.type);  // e.g., "Hello"
+
+// Validate a message has required fields
+bool valid = Protocol::IsValidMessage(msg);  // type != Unknown && msgId not empty
+```
+
+### Logger Configuration
+```cpp
+// Set minimum log level (Debug < Info < Warning < Error)
+Logger::Instance().SetMinLevel(Logger::Level::Warning);  // Only warnings and errors
+```
+
+### WsClient State
+```cpp
+// Get state as enum
+WsClient::ConnectionState state = client.GetState();
+
+// Get state as string for logging
+std::string stateStr = client.GetStateString();  // e.g., "Connected"
+```
 
 ## Project Structure
 

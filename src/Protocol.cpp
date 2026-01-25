@@ -65,6 +65,26 @@ namespace Protocol
         return "";
     }
 
+    std::string MessageTypeToString(MessageType type)
+    {
+        switch (type)
+        {
+        case MessageType::Hello:       return "Hello";
+        case MessageType::BinaryStart: return "BinaryStart";
+        case MessageType::BinaryData:  return "BinaryData";
+        case MessageType::Acknowledge: return "Acknowledge";
+        case MessageType::Error:       return "Error";
+        case MessageType::Unknown:
+        default:                       return "Unknown";
+        }
+    }
+
+    bool IsValidMessage(const Message& msg)
+    {
+        // A valid message must have a known type and a message ID
+        return msg.type != MessageType::Unknown && !msg.msgId.empty();
+    }
+
     Message ParseJsonMessage(const std::string& json)
     {
         Message msg;
