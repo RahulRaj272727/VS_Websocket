@@ -1,0 +1,47 @@
+# Build directories and objects
+/x64/
+/Win32/
+/Debug/
+/Release/
+
+# Visual Studio cache/options directory
+/.vs/
+
+# MSBuild Generated files and build artifacts
+*.tlog
+*.log
+*.idb
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.lib
+*.pch
+*.exp
+*.VC.db
+*.ipdb
+*.iobj
+
+# Visual Studio project user-specific files
+*.vcxproj.user
+*.vcxproj.filters.user
+
+# Visual Studio solution file cache
+.sln.iml
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output directories
+bin/
+obj/
+out/
+
+# Temporary files
+*.tmp
+*.temp
