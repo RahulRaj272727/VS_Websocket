@@ -45,17 +45,34 @@ public:
     /// Mutex protecting the connection state from concurrent access
     std::mutex stateMutex;
     
+    /// Mutex protecting binary transfer state variables
+    std::mutex binaryMutex;
+    
     /// Condition variable for synchronizing state changes (used in WaitForConnection)
     std::condition_variable stateCV;
+    
+    /// Condition variable for synchronizing shutdown completion
+    std::condition_variable shutdownCV;
+    
+    /// Flag indicating that the WebSocket internal thread has completed shutdown
+    bool shutdownComplete = false;
     
     /// Message router for dispatching parsed messages to application handlers
     MessageRouter messageRouter;
     
-    /// Track bytes received for binary transfer reassembly
+    /// Track bytes received for binary transfer reassembly (protected by binaryMutex)
     size_t binaryBytesReceived = 0;
     
-    /// Expected total bytes for current binary transfer (from BinaryStart message)
+    /// Expected total bytes for current binary transfer (protected by binaryMutex)
     size_t binaryExpectedSize = 0;
+    
+    /// Reset binary transfer state (call when connection closes or transfer completes)
+    void ResetBinaryState()
+    {
+        std::lock_guard<std::mutex> lock(binaryMutex);
+        binaryBytesReceived = 0;
+        binaryExpectedSize = 0;
+    }
 };
 
 WsClient::WsClient(const Protocol::Config& config)
@@ -161,6 +178,22 @@ bool WsClient::WaitForConnection(int timeoutMs)
     // Create unique_lock (unlike lock_guard, this works with condition variables)
     std::unique_lock<std::mutex> lock(mImpl->stateMutex);
     
+    // Early return if already connected or in invalid state for waiting
+    if (mImpl->state == ConnectionState::Connected)
+    {
+        Logger::Instance().Debug("WsClient", 
+            "WaitForConnection: Already connected");
+        return true;
+    }
+    
+    if (mImpl->state != ConnectionState::Connecting)
+    {
+        Logger::Instance().Warning("WsClient", 
+            "WaitForConnection: Invalid state - expected Connecting, got " + 
+            std::to_string(static_cast<int>(mImpl->state)));
+        return false;
+    }
+    
     // Wait until one of these happens:
     // 1. Timeout expires (returns false)
     // 2. State becomes Connected (returns true)
@@ -207,6 +240,12 @@ bool WsClient::WaitForConnection(int timeoutMs)
 bool WsClient::SendText(const std::string& pText)
 {
     // Check connection state before attempting to send
+    // NOTE: There is an intentional TOCTOU (time-of-check-time-of-use) gap here.
+    // The connection state could change between this check and the actual send below.
+    // This is acceptable because:
+    // 1. IXWebSocket handles sends on closed connections gracefully (returns error)
+    // 2. Holding the lock during I/O would risk deadlock with callbacks
+    // 3. The state check is a fast-path optimization, not a guarantee
     {
         std::lock_guard<std::mutex> lock(mImpl->stateMutex);
         if (mImpl->state != ConnectionState::Connected)
@@ -240,6 +279,7 @@ bool WsClient::SendBinary(const void* pData, size_t pSize)
     }
 
     // Check connection state before attempting to send
+    // NOTE: Intentional TOCTOU gap - see SendText() for detailed explanation
     {
         std::lock_guard<std::mutex> lock(mImpl->stateMutex);
         if (mImpl->state != ConnectionState::Connected)
@@ -313,16 +353,32 @@ void WsClient::Close()
         if (mImpl->state == ConnectionState::Disconnected)
             return;
         
-        // Mark as closing
+        // Mark as closing and reset shutdown completion flag
         mImpl->state = ConnectionState::Closing;
+        mImpl->shutdownComplete = false;
     }
 
     // Stop the WebSocket connection
     mImpl->ws.stop();
     
-    // Give the internal thread time to exit gracefully
-    // (IXWebSocket manages its own thread internally)
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Wait for the internal thread to exit gracefully with proper synchronization
+    // IXWebSocket will trigger OnClose callback when the thread has completed shutdown
+    {
+        std::unique_lock<std::mutex> lock(mImpl->stateMutex);
+        
+        // Wait up to 5 seconds for shutdown completion
+        bool completed = mImpl->shutdownCV.wait_for(
+            lock, 
+            std::chrono::milliseconds(5000),
+            [this] { return mImpl->shutdownComplete; }
+        );
+        
+        if (!completed)
+        {
+            Logger::Instance().Warning("WsClient", 
+                "Shutdown timeout - internal thread may still be running");
+        }
+    }
 
     Logger::Instance().Info("WsClient", 
         "Connection closed");
@@ -356,25 +412,47 @@ void WsClient::OnMessage(const std::string& pMsg, bool pIsBinary)
         Logger::Instance().Debug("WsClient", 
             "[RECV][BINARY] " + std::to_string(pMsg.size()) + " bytes");
         
-        // Update total bytes received for this transfer
-        mImpl->binaryBytesReceived += pMsg.size();
+        // Thread-safe update of binary transfer state
+        bool transferComplete = false;
+        {
+            std::lock_guard<std::mutex> lock(mImpl->binaryMutex);
+            
+            // Check for integer overflow before adding
+            if (pMsg.size() > SIZE_MAX - mImpl->binaryBytesReceived)
+            {
+                Logger::Instance().Error("WsClient", 
+                    "Binary transfer overflow detected - resetting");
+                mImpl->binaryBytesReceived = 0;
+                mImpl->binaryExpectedSize = 0;
+                mImpl->messageRouter.RouteProtocolError(
+                    "Binary transfer size overflow - possible attack or corruption");
+                return;
+            }
+            
+            // Update total bytes received for this transfer
+            mImpl->binaryBytesReceived += pMsg.size();
+            
+            // Check if binary transfer is complete
+            // (received >= expected size from BinaryStart message)
+            if (mImpl->binaryBytesReceived >= mImpl->binaryExpectedSize &&
+                mImpl->binaryExpectedSize > 0)
+            {
+                transferComplete = true;
+            }
+        }
         
-        // Route binary chunk to application handler
+        // Route binary chunk to application handler (outside lock to avoid deadlock)
         mImpl->messageRouter.RouteBinaryData(
             reinterpret_cast<const uint8_t*>(pMsg.data()), 
             pMsg.size());
 
-        // Check if binary transfer is complete
-        // (received >= expected size from BinaryStart message)
-        if (mImpl->binaryBytesReceived >= mImpl->binaryExpectedSize &&
-            mImpl->binaryExpectedSize > 0)
+        if (transferComplete)
         {
             // Notify handler that transfer is complete
             mImpl->messageRouter.RouteBinaryComplete();
             
-            // Reset for next binary transfer
-            mImpl->binaryBytesReceived = 0;
-            mImpl->binaryExpectedSize = 0;
+            // Reset for next binary transfer (thread-safe)
+            mImpl->ResetBinaryState();
         }
     }
     else
@@ -390,6 +468,31 @@ void WsClient::OnMessage(const std::string& pMsg, bool pIsBinary)
         // Track expected binary size if this is a BinaryStart message
         if (msg.type == Protocol::MessageType::BinaryStart)
         {
+            std::lock_guard<std::mutex> lock(mImpl->binaryMutex);
+            
+            // Validate against maximum payload size (security check)
+            if (msg.binarySize > mImpl->config.maxBinaryPayloadSize)
+            {
+                Logger::Instance().Error("WsClient", 
+                    "BinaryStart size exceeds max: " + 
+                    std::to_string(msg.binarySize) + " > " + 
+                    std::to_string(mImpl->config.maxBinaryPayloadSize));
+                mImpl->messageRouter.RouteProtocolError(
+                    "Binary payload size exceeds maximum allowed: " + 
+                    std::to_string(msg.binarySize));
+                return;
+            }
+            
+            // Validate non-zero size
+            if (msg.binarySize == 0)
+            {
+                Logger::Instance().Warning("WsClient", 
+                    "BinaryStart with zero size - ignoring");
+                mImpl->messageRouter.RouteProtocolError(
+                    "BinaryStart message with zero size is invalid");
+                return;
+            }
+            
             mImpl->binaryExpectedSize = msg.binarySize;
             mImpl->binaryBytesReceived = 0;
             
@@ -409,10 +512,17 @@ void WsClient::OnClose()
     {
         std::lock_guard<std::mutex> lock(mImpl->stateMutex);
         mImpl->state = ConnectionState::Disconnected;
+        mImpl->shutdownComplete = true;  // Signal that shutdown is complete
     }
+    
+    // Reset binary transfer state to prevent stale values on reconnect
+    mImpl->ResetBinaryState();
     
     // Notify all threads waiting in WaitForConnection()
     mImpl->stateCV.notify_all();
+    
+    // Notify any threads waiting in Close() for shutdown to complete
+    mImpl->shutdownCV.notify_all();
 
     Logger::Instance().Info("WsClient", 
         "Server closed the connection");

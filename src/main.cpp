@@ -43,6 +43,16 @@
  * - Report errors and status
  * 
  * In a real application, this would update UI, save to database, trigger business logic, etc.
+ * 
+ * @note THREAD SAFETY: All handler methods are called from IXWebSocket's internal thread,
+ *       NOT the main application thread. If your handler accesses shared state (UI, database,
+ *       shared data structures), you MUST provide your own synchronization (mutex, atomic, etc.).
+ *       
+ *       This example uses mTotalBytesReceived without synchronization because:
+ *       1. The protocol guarantees sequential binary transfers (no concurrent chunks)
+ *       2. The variable is only accessed from the callback thread
+ *       
+ *       For production code with shared state, add appropriate mutex protection.
  */
 class TallyIXMessageHandler : public IMessageHandler
 {
@@ -54,6 +64,7 @@ public:
      * you would examine the message type and content to decide what to do.
      * 
      * @param msg The received text message
+     * @note Called from IXWebSocket's internal thread - synchronize if accessing shared state
      */
     void OnTextMessage(const Protocol::Message& msg) override
     {

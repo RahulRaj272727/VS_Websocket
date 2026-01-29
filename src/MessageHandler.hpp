@@ -186,8 +186,20 @@ public:
      * @see RouteMessage, RouteBinaryData
      */
     void RouteBinaryComplete();
+    
+    /**
+     * @brief Route a protocol error directly to the handler.
+     * 
+     * Used by WsClient to report protocol-level errors (overflow, invalid sizes, etc.)
+     * to the application handler.
+     * 
+     * @param errorMsg Human-readable error description
+     */
+    void RouteProtocolError(const std::string& errorMsg);
 
 private:
     /// @brief Pointer to the application's message handler (may be null)
+    /// @note Access is NOT synchronized - caller must ensure SetMessageHandler
+    ///       is only called before message routing begins (during setup phase)
     IMessageHandler* mHandler = nullptr;
 };

@@ -130,3 +130,19 @@ void MessageRouter::RouteBinaryComplete()
     Logger::Instance().Debug("MessageRouter", "Binary transfer completed");
     mHandler->OnBinaryComplete();
 }
+
+void MessageRouter::RouteProtocolError(const std::string& errorMsg)
+{
+    // Check if a handler is attached
+    if (!mHandler)
+    {
+        Logger::Instance().Warning("MessageRouter", 
+            "No handler set for protocol error: " + errorMsg);
+        return;
+    }
+
+    // Route error to handler
+    Logger::Instance().Warning("MessageRouter", 
+        "Routing protocol error: " + errorMsg);
+    mHandler->OnProtocolError(errorMsg);
+}
