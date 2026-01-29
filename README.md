@@ -2,6 +2,8 @@
 
 A production-grade C++ WebSocket client proof-of-concept for TallyIX with a focus on **thread safety**, **synchronization**, and **extensibility**.
 
+[![CodeRabbit Review](https://img.shields.io/badge/CodeRabbit-Reviewed-green)](https://coderabbit.ai)
+
 ## Overview
 
 This project demonstrates a robust WebSocket client built on top of **IXWebSocket** library, providing a higher-level abstraction suitable for evolving into production-level TallyIX integration.
@@ -17,6 +19,11 @@ This project demonstrates a robust WebSocket client built on top of **IXWebSocke
 - ✅ **Automatic DLL Deployment**: Post-build events copy OpenSSL DLLs to output directory
 - ✅ **Helper Functions**: `MessageTypeToString()`, `IsValidMessage()`, `GetStateString()` for debugging
 - ✅ **Configurable Logging**: `SetMinLevel()` to filter log output for production/debug builds
+- ✅ **Connection Retry Logic**: Exponential backoff for resilient connections (NEW)
+- ✅ **Binary Transfer Security**: Overflow protection and size validation (NEW)
+- ✅ **Thread-Safe Shutdown**: Condition variable-based deterministic cleanup (NEW)
+- ✅ **Protocol Error Propagation**: Application notification for protocol violations (NEW)
+- ✅ **Configuration Validation**: `Config::IsValid()` for bounds checking (NEW)
 
 ## Architecture
 
@@ -107,15 +114,24 @@ x64\Debug\VS_Websocket.exe
 ### Expected Output
 
 ```
-17:16:40.013 [INF][Main] Starting TallyIX WebSocket POC
-17:16:40.021 [INF][WsClient] Network system initialized
-17:16:40.024 [INF][WsClient] Connection initiated to ws://127.0.0.1:9001
-17:16:40.055 [INF][WsClient] Connected to server
-17:16:40.056 [INF][WsClient] Connected successfully
-17:16:40.057 [DBG][WsClient] [SEND][TEXT] {"type":"hello",...}
-17:16:40.058 [DBG][WsClient] [RECV][TEXT] {"type":"hello",...}
-...
-17:16:43.644 [INF][Main] POC completed successfully
+16:18:37.668 [INF][Main] ====================================================
+16:18:37.671 [INF][Main]   TallyIX WebSocket POC - v2.0
+16:18:37.672 [INF][Main] ====================================================
+16:18:37.673 [INF][Main] Configuration: timeout=10000ms, maxBinarySize=100MB
+16:18:37.677 [INF][Main] Network initialization attempt 1/3
+16:18:37.679 [INF][WsClient] Network system initialized successfully
+16:18:37.680 [INF][Main] Starting connection attempts (max: 5, exponential backoff)
+16:18:37.681 [INF][Main] Connection attempt 1/5 to ws://127.0.0.1:9001
+16:18:37.702 [INF][WsClient] Connected to server
+16:18:37.703 [INF][Main] Connected to server successfully on attempt 1!
+16:18:37.705 [INF][Main] Sending Hello message...
+16:18:37.709 [INF][App] Received text message - Type: Hello, MsgID: msg_001
+16:18:37.713 [INF][App] Binary transfer starting - Expected size: 1048576 bytes
+16:18:38.041 [DBG][App] Received binary chunk: 1048576 bytes (Total: 1048576)
+16:18:38.042 [INF][App] Binary transfer complete - 1048576 bytes received
+16:18:41.034 [INF][Main] Closing connection...
+16:18:41.039 [INF][Main] Final state: Disconnected
+16:18:41.042 [INF][Main]   TallyIX WebSocket POC - Complete
 ```
 
 ## Code Patterns
@@ -127,6 +143,11 @@ Protocol::Config config;
 config.connectionTimeoutMs = 10000;
 config.maxBinaryPayloadSize = 100 * 1024 * 1024;
 
+// Validate configuration before use (NEW)
+if (!config.IsValid()) {
+    // Handle invalid configuration
+}
+
 WsClient client(config);
 MyMessageHandler handler;
 client.SetMessageHandler(&handler);
@@ -135,15 +156,29 @@ client.SetMessageHandler(&handler);
 Logger::Instance().SetMinLevel(Logger::Level::Info);
 
 client.Open();                         // Initialize
-client.Connect("ws://host:port");      // Non-blocking
-if (!client.WaitForConnection(10000)) { /* timeout or error */ }
+
+// Connection with retry logic (IMPROVED)
+const int maxAttempts = 5;
+int backoffMs = 500;
+bool connected = false;
+
+for (int attempt = 1; attempt <= maxAttempts && !connected; ++attempt) {
+    client.Connect("ws://host:port");      // Non-blocking
+    if (client.WaitForConnection(10000)) {
+        connected = true;
+    } else {
+        // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
+        std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs));
+        backoffMs *= 2;
+    }
+}
 
 // Check connection state
 std::cout << "State: " << client.GetStateString() << std::endl;
 
 client.SendText(json);
 client.SendBinary(data, size);
-client.Close();  // Graceful shutdown
+client.Close();  // Graceful shutdown with proper synchronization
 ```
 
 ### Implementing IMessageHandler
@@ -212,9 +247,18 @@ All messages are JSON with the following structure:
 |-----------|--------------|-----------------|
 | Logger | Singleton | Mutex (lock_guard) + Min Level Filter |
 | WsClient state | Shared (main + IXWs) | Mutex + Condition Variable |
+| WsClient binary state | Shared (callback thread) | Dedicated binaryMutex (NEW) |
+| WsClient shutdown | Shared (main + callback) | shutdownCV + shutdownComplete flag (NEW) |
 | MessageRouter | Called from IXWs | No mutex (callback-only writes) |
 | Protocol | Stateless | None needed |
 | IMessageHandler | Called from IXWs | App responsible for internal sync |
+
+### Thread Safety Guarantees (NEW)
+
+- **Binary Transfer**: `binaryBytesReceived` and `binaryExpectedSize` are protected by `binaryMutex`
+- **Shutdown Synchronization**: `Close()` waits on `shutdownCV` for deterministic cleanup (up to 5s timeout)
+- **State Validation**: `WaitForConnection()` validates state before waiting
+- **TOCTOU Documented**: `SendText()`/`SendBinary()` intentionally release lock before I/O (documented)
 
 ## API Quick Reference
 
@@ -282,10 +326,19 @@ VS_Websocket/
 ## Known Limitations
 
 - Simple JSON parsing (no external library); breaks on special characters
-- No automatic reconnection (intentional—app decides on retry policy)
+- No automatic reconnection built-in (retry logic example provided in main.cpp)
 - Binary fragmentation handled per-message only
 - No compression support yet
 - Mock server just echoes (no validation)
+- Memory usage during binary transfers can be 2-3x payload size due to internal copies
+
+## Security Considerations (NEW)
+
+- **Integer Overflow Protection**: Binary reassembly checks for overflow before accumulating
+- **Size Validation**: `BinaryStart` size validated against `maxBinaryPayloadSize`
+- **Zero Size Rejection**: `BinaryStart` with size 0 is rejected as invalid
+- **State Reset on Disconnect**: Binary transfer state cleared on connection close
+- **Configuration Bounds**: `Config::IsValid()` enforces reasonable limits (max 1GB binary)
 
 ## Future Work
 
