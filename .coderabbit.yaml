@@ -129,144 +129,145 @@ reviews:
         - Debug and Release configurations
         - Platform configurations (Win32, x64)
         - C++17 standard setting
+    - path: "**"
+      instructions: |
+        # TallyIX WebSocket Client - Production Code Review Guidelines
+        
+        ## Project Context
+        This is a production-grade C++ WebSocket client for TallyIX integration, emphasizing:
+        - **Thread Safety**: Critical for multi-threaded WebSocket callbacks
+        - **Synchronization**: State machine with condition variables
+        - **Resource Management**: RAII patterns, smart pointers only
+        - **Protocol Compliance**: Strict JSON-based protocol handling
+        
+        ## Architecture Overview
+        
+        ### Core Components
+        1. **WsClient** (Pimpl pattern)
+           - State: Disconnected → Connecting → Connected → Closing
+           - Synchronized via mutex + condition variable
+           - Non-blocking Connect(), blocking WaitForConnection(timeout)
+           - Manages IXWebSocket lifecycle
+        
+        2. **Protocol** (Stateless)
+           - Message types: Hello, BinaryStart, BinaryData, Acknowledge, Error
+           - JSON parsing without external dependencies
+           - Binary payload metadata and reassembly tracking
+           - Configuration: connection timeout, max binary size
+        
+        3. **MessageHandler** (Interface + Router)
+           - IMessageHandler: Abstract interface for app callbacks
+           - MessageRouter: Routes parsed messages to handlers
+           - Decouples transport from application logic
+        
+        4. **Logger** (Thread-safe Singleton)
+           - Mutex-protected stdout access
+           - Severity levels: Debug, Info, Warning, Error
+           - Used by all components for diagnostics
+        
+        ## Critical Review Areas
+        
+        ### Thread Safety (Highest Priority)
+        - [ ] All shared state accesses protected by mutex
+        - [ ] No mutex held during callback invocations
+        - [ ] Condition variable properly used for state signaling
+        - [ ] No potential deadlocks (acquire order, timeout usage)
+        - [ ] Callback context assumptions documented
+        - [ ] IXWebSocket callback thread implications understood
+        
+        ### State Machine Correctness
+        - [ ] All state transitions valid (no impossible paths)
+        - [ ] Connection timeout handled in Connecting state
+        - [ ] Graceful shutdown sequence (Close → Closing → Disconnected)
+        - [ ] Error states properly cleanup resources
+        
+        ### Memory & Resource Management
+        - [ ] std::unique_ptr for Pimpl (no raw pointers)
+        - [ ] No circular references or dangling pointers
+        - [ ] Binary data buffering size-bounded
+        - [ ] Exception safety during state changes
+        - [ ] Resource cleanup on error paths
+        
+        ### Binary Data Handling
+        - [ ] Expected size validation (prevent overflow)
+        - [ ] Chunk reassembly correctness
+        - [ ] Memory allocation safety
+        - [ ] Maximum size enforcement
+        
+        ### Protocol Message Handling
+        - [ ] All message types recognized
+        - [ ] JSON parsing handles special characters
+        - [ ] Field validation (required vs optional)
+        - [ ] Error messages clear and actionable
+        - [ ] Message construction examples correct
+        
+        ### API Design
+        - [ ] Public interface clear and intuitive
+        - [ ] Async nature documented
+        - [ ] Error handling strategy consistent
+        - [ ] Example usage (main.cpp) correct and complete
+        
+        ## Code Standards
+        - Language: C++17
+        - Toolchain: Visual Studio 2022 (v143)
+        - Platforms: Windows (Win32/x64)
+        - No external JSON library (hand-parsed)
+        - IXWebSocket for low-level protocol
+        - OpenSSL for WSS support
+        
+        ## Common Patterns to Verify
+        
+        ### Safe State Check Pattern
+        ```cpp
+        {
+          std::lock_guard<std::mutex> lock(mImpl->stateMutex);
+          if (mImpl->state != State::Connected) {
+            // Log error and return
+            return false;
+          }
+        } // Lock released before callback
+        ixWebSocket->send(data);
+        ```
+        
+        ### State Change + Signal Pattern
+        ```cpp
+        {
+          std::lock_guard<std::mutex> lock(mImpl->stateMutex);
+          mImpl->state = newState;
+        }
+        mImpl->stateChanged.notify_all();
+        ```
+        
+        ### WaitForConnection Pattern
+        ```cpp
+        std::unique_lock<std::mutex> lock(mImpl->stateMutex);
+        bool ready = mImpl->stateChanged.wait_for(
+          lock, timeout,
+          [this] { return mImpl->state == State::Connected; }
+        );
+        ```
+        
+        ## Known Design Decisions (Don't Flag These)
+        - Callback-based message handling (by design)
+        - No automatic reconnection (app responsibility)
+        - Per-message binary fragmentation (not multi-message)
+        - No compression (reserved for future)
+        - Simple JSON parsing (dependency-free)
+        
+        ## Focus on Impact
+        Prioritize issues that could cause:
+        - Data corruption or race conditions
+        - Deadlocks or performance degradation
+        - Memory leaks or resource exhaustion
+        - Protocol violations or message loss
+        - Unclear API contracts
+
+  tools:
+    ast-grep:
+      enabled: true
 
 chat:
   auto_reply: true
-  use_openai: true
-
-tools:
-  ast-grep:
-    enabled: true
-
-# Custom review instructions specific to project architecture
-instructions: |
-  # TallyIX WebSocket Client - Production Code Review Guidelines
-  
-  ## Project Context
-  This is a production-grade C++ WebSocket client for TallyIX integration, emphasizing:
-  - **Thread Safety**: Critical for multi-threaded WebSocket callbacks
-  - **Synchronization**: State machine with condition variables
-  - **Resource Management**: RAII patterns, smart pointers only
-  - **Protocol Compliance**: Strict JSON-based protocol handling
-  
-  ## Architecture Overview
-  
-  ### Core Components
-  1. **WsClient** (Pimpl pattern)
-     - State: Disconnected → Connecting → Connected → Closing
-     - Synchronized via mutex + condition variable
-     - Non-blocking Connect(), blocking WaitForConnection(timeout)
-     - Manages IXWebSocket lifecycle
-  
-  2. **Protocol** (Stateless)
-     - Message types: Hello, BinaryStart, BinaryData, Acknowledge, Error
-     - JSON parsing without external dependencies
-     - Binary payload metadata and reassembly tracking
-     - Configuration: connection timeout, max binary size
-  
-  3. **MessageHandler** (Interface + Router)
-     - IMessageHandler: Abstract interface for app callbacks
-     - MessageRouter: Routes parsed messages to handlers
-     - Decouples transport from application logic
-  
-  4. **Logger** (Thread-safe Singleton)
-     - Mutex-protected stdout access
-     - Severity levels: Debug, Info, Warning, Error
-     - Used by all components for diagnostics
-  
-  ## Critical Review Areas
-  
-  ### Thread Safety (Highest Priority)
-  - [ ] All shared state accesses protected by mutex
-  - [ ] No mutex held during callback invocations
-  - [ ] Condition variable properly used for state signaling
-  - [ ] No potential deadlocks (acquire order, timeout usage)
-  - [ ] Callback context assumptions documented
-  - [ ] IXWebSocket callback thread implications understood
-  
-  ### State Machine Correctness
-  - [ ] All state transitions valid (no impossible paths)
-  - [ ] Connection timeout handled in Connecting state
-  - [ ] Graceful shutdown sequence (Close → Closing → Disconnected)
-  - [ ] Error states properly cleanup resources
-  
-  ### Memory & Resource Management
-  - [ ] std::unique_ptr for Pimpl (no raw pointers)
-  - [ ] No circular references or dangling pointers
-  - [ ] Binary data buffering size-bounded
-  - [ ] Exception safety during state changes
-  - [ ] Resource cleanup on error paths
-  
-  ### Binary Data Handling
-  - [ ] Expected size validation (prevent overflow)
-  - [ ] Chunk reassembly correctness
-  - [ ] Memory allocation safety
-  - [ ] Maximum size enforcement
-  
-  ### Protocol Message Handling
-  - [ ] All message types recognized
-  - [ ] JSON parsing handles special characters
-  - [ ] Field validation (required vs optional)
-  - [ ] Error messages clear and actionable
-  - [ ] Message construction examples correct
-  
-  ### API Design
-  - [ ] Public interface clear and intuitive
-  - [ ] Async nature documented
-  - [ ] Error handling strategy consistent
-  - [ ] Example usage (main.cpp) correct and complete
-  
-  ## Code Standards
-  - Language: C++17
-  - Toolchain: Visual Studio 2022 (v143)
-  - Platforms: Windows (Win32/x64)
-  - No external JSON library (hand-parsed)
-  - IXWebSocket for low-level protocol
-  - OpenSSL for WSS support
-  
-  ## Common Patterns to Verify
-  
-  ### Safe State Check Pattern
-  ```cpp
-  {
-    std::lock_guard<std::mutex> lock(mImpl->stateMutex);
-    if (mImpl->state != State::Connected) {
-      // Log error and return
-      return false;
-    }
-  } // Lock released before callback
-  ixWebSocket->send(data);
-  ```
-  
-  ### State Change + Signal Pattern
-  ```cpp
-  {
-    std::lock_guard<std::mutex> lock(mImpl->stateMutex);
-    mImpl->state = newState;
-  }
-  mImpl->stateChanged.notify_all();
-  ```
-  
-  ### WaitForConnection Pattern
-  ```cpp
-  std::unique_lock<std::mutex> lock(mImpl->stateMutex);
-  bool ready = mImpl->stateChanged.wait_for(
-    lock, timeout,
-    [this] { return mImpl->state == State::Connected; }
-  );
-  ```
-  
-  ## Known Design Decisions (Don't Flag These)
-  - Callback-based message handling (by design)
-  - No automatic reconnection (app responsibility)
-  - Per-message binary fragmentation (not multi-message)
-  - No compression (reserved for future)
-  - Simple JSON parsing (dependency-free)
-  
-  ## Focus on Impact
-  Prioritize issues that could cause:
-  - Data corruption or race conditions
-  - Deadlocks or performance degradation
-  - Memory leaks or resource exhaustion
-  - Protocol violations or message loss
-  - Unclear API contracts
+  integrations:
+    openai:
+      enabled: true
