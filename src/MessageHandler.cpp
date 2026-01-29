@@ -1,3 +1,4 @@
+// CodeRabbit: Please review this file thoroughly for production readiness
 #include "MessageHandler.hpp"
 #include "Logger.hpp"
 
@@ -73,13 +74,20 @@ void MessageRouter::RouteMessage(const Protocol::Message& msg)
         mHandler->OnProtocolError(msg.content);
         break;
 
-    // Unknown message types are warnings but still route if possible
+    // Unknown message types are protocol violations - report to application
     case Protocol::MessageType::Unknown:
     case Protocol::MessageType::BinaryData:  // Should not arrive as text
     default:
-        Logger::Instance().Warning("MessageRouter", 
-            "Unhandled message type: " + std::to_string(static_cast<int>(msg.type)));
-        // Could optionally call OnProtocolError for truly unknown types
+        {
+            std::string errorMsg = "Unhandled or invalid message type: " + 
+                                   std::to_string(static_cast<int>(msg.type)) +
+                                   " (msgId: " + msg.msgId + ")";
+            
+            Logger::Instance().Warning("MessageRouter", errorMsg);
+            
+            // Notify application of protocol anomaly so it can react
+            mHandler->OnProtocolError(errorMsg);
+        }
         break;
     }
 }
@@ -121,4 +129,20 @@ void MessageRouter::RouteBinaryComplete()
     // Notify handler that binary transfer is complete
     Logger::Instance().Debug("MessageRouter", "Binary transfer completed");
     mHandler->OnBinaryComplete();
+}
+
+void MessageRouter::RouteProtocolError(const std::string& errorMsg)
+{
+    // Check if a handler is attached
+    if (!mHandler)
+    {
+        Logger::Instance().Warning("MessageRouter", 
+            "No handler set for protocol error: " + errorMsg);
+        return;
+    }
+
+    // Route error to handler
+    Logger::Instance().Warning("MessageRouter", 
+        "Routing protocol error: " + errorMsg);
+    mHandler->OnProtocolError(errorMsg);
 }

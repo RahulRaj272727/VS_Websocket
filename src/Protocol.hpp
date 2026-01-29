@@ -1,3 +1,4 @@
+// CodeRabbit: Please review this file thoroughly for production readiness
 #pragma once
 
 #include <string>
@@ -66,6 +67,9 @@ namespace Protocol
      * 
      * These settings control timeouts, maximum payload sizes, and other protocol behaviors.
      * They should be configured during initialization based on your application's needs.
+     * 
+     * @warning Due to internal copies during send operations, actual memory usage may be
+     *          2-3x the maxBinaryPayloadSize for large transfers. Plan accordingly.
      */
     struct Config
     {
@@ -73,17 +77,32 @@ namespace Protocol
         int connectionTimeoutMs = 10000;
         
         /// Message timeout in milliseconds - how long to wait for responses to sent messages
+        /// @note Currently reserved for future use - not enforced in current implementation
         int messageTimeoutMs = 5000;
         
         /// Maximum binary payload size in bytes (100MB default) - prevents out-of-memory errors
         /// Adjust based on your hardware and expected message sizes
+        /// @warning Memory usage during transfer may be 2-3x this value due to internal copies
+        /// @note Must be > 0 and <= 1GB for safety
         size_t maxBinaryPayloadSize = 100 * 1024 * 1024;
         
-        /// Flag for compression support (reserved for future use)
+        /// Flag for compression support
+        /// @note Currently reserved for future use - not implemented in current version
         bool enableCompression = false;
         
         /// Protocol version string for compatibility checking (semantic versioning)
+        /// @note Currently reserved for future use - not validated in current implementation
         std::string protocolVersion = "1.0";
+        
+        /// @brief Validate configuration values for safety
+        /// @return true if all values are within acceptable bounds
+        bool IsValid() const 
+        {
+            return connectionTimeoutMs > 0 && 
+                   messageTimeoutMs > 0 &&
+                   maxBinaryPayloadSize > 0 && 
+                   maxBinaryPayloadSize <= 1024ULL * 1024 * 1024;  // 1GB max
+        }
     };
 
     /**

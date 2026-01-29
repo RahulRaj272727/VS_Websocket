@@ -1,3 +1,4 @@
+// CodeRabbit: Please review this file thoroughly for production readiness
 #include <iostream>
 #include <vector>
 #include <thread>
@@ -42,6 +43,16 @@
  * - Report errors and status
  * 
  * In a real application, this would update UI, save to database, trigger business logic, etc.
+ * 
+ * @note THREAD SAFETY: All handler methods are called from IXWebSocket's internal thread,
+ *       NOT the main application thread. If your handler accesses shared state (UI, database,
+ *       shared data structures), you MUST provide your own synchronization (mutex, atomic, etc.).
+ *       
+ *       This example uses mTotalBytesReceived without synchronization because:
+ *       1. The protocol guarantees sequential binary transfers (no concurrent chunks)
+ *       2. The variable is only accessed from the callback thread
+ *       
+ *       For production code with shared state, add appropriate mutex protection.
  */
 class TallyIXMessageHandler : public IMessageHandler
 {
@@ -53,6 +64,7 @@ public:
      * you would examine the message type and content to decide what to do.
      * 
      * @param msg The received text message
+     * @note Called from IXWebSocket's internal thread - synchronize if accessing shared state
      */
     void OnTextMessage(const Protocol::Message& msg) override
     {
@@ -240,42 +252,134 @@ int main()
     // === NETWORK INITIALIZATION ===
 
     // Initialize the network system (must be called once per application)
-    if (!client.Open())
+    // Retry logic for Open() in case of transient failures
+    const int maxOpenAttempts = 3;
+    bool openSuccess = false;
+    
+    for (int attempt = 1; attempt <= maxOpenAttempts; ++attempt)
+    {
+        Logger::Instance().Info("Main", 
+            "Network initialization attempt " + std::to_string(attempt) + 
+            "/" + std::to_string(maxOpenAttempts));
+        
+        if (client.Open())
+        {
+            openSuccess = true;
+            Logger::Instance().Info("Main", "Network system initialized");
+            break;
+        }
+        
+        Logger::Instance().Error("Main", 
+            "Failed to initialize WebSocket client (attempt " + 
+            std::to_string(attempt) + "/" + std::to_string(maxOpenAttempts) + ")");
+        
+        if (attempt < maxOpenAttempts)
+        {
+            int backoffMs = 1000 * attempt;  // Linear backoff: 1s, 2s, 3s
+            Logger::Instance().Info("Main", 
+                "Retrying in " + std::to_string(backoffMs) + "ms...");
+            std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs));
+        }
+    }
+    
+    if (!openSuccess)
     {
         Logger::Instance().Error("Main", 
-            "FATAL: Failed to initialize WebSocket client");
-        return -1;  // Fatal error - cannot continue
+            "FATAL: Failed to initialize WebSocket client after " + 
+            std::to_string(maxOpenAttempts) + " attempts");
+        return -1;  // Fatal error - cannot continue without network system
     }
 
+    // === CONNECTION WITH RETRY LOGIC ===
+
+    // Connection retry configuration
+    const int maxConnectionAttempts = 5;
+    int initialBackoffMs = 500;  // Start with 500ms
+    bool connectionSuccess = false;
+    
     Logger::Instance().Info("Main", 
-        "Network system initialized");
+        "Starting connection attempts (max: " + 
+        std::to_string(maxConnectionAttempts) + 
+        ", exponential backoff)");
 
-    // === CONNECTION ===
+    for (int attempt = 1; attempt <= maxConnectionAttempts; ++attempt)
+    {
+        // Calculate exponential backoff: 500ms, 1s, 2s, 4s, 8s
+        int backoffMs = initialBackoffMs * (1 << (attempt - 1));
+        
+        Logger::Instance().Info("Main", 
+            "Connection attempt " + std::to_string(attempt) + 
+            "/" + std::to_string(maxConnectionAttempts) + 
+            " to ws://127.0.0.1:9001");
+        
+        // Initiate connection to the server (non-blocking)
+        if (!client.Connect("ws://127.0.0.1:9001"))
+        {
+            Logger::Instance().Error("Main", 
+                "Failed to initiate connection (attempt " + 
+                std::to_string(attempt) + ")");
+            
+            if (attempt < maxConnectionAttempts)
+            {
+                Logger::Instance().Info("Main", 
+                    "Retrying in " + std::to_string(backoffMs) + "ms...");
+                std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs));
+            }
+            continue;  // Try next attempt
+        }
 
-    // Initiate connection to the server (non-blocking)
-    if (!client.Connect("ws://127.0.0.1:9001"))
+        Logger::Instance().Info("Main", 
+            "Connection initiated, waiting for establishment...");
+
+        // Block until connection is established or times out
+        if (!client.WaitForConnection(config.connectionTimeoutMs))
+        {
+            Logger::Instance().Error("Main", 
+                "Connection failed or timed out after " + 
+                std::to_string(config.connectionTimeoutMs) + 
+                "ms (attempt " + std::to_string(attempt) + ")");
+            
+            // Close failed connection before retry
+            client.Close();
+            
+            if (attempt < maxConnectionAttempts)
+            {
+                Logger::Instance().Info("Main", 
+                    "Retrying in " + std::to_string(backoffMs) + "ms...");
+                std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs));
+            }
+            continue;  // Try next attempt
+        }
+
+        // Success!
+        connectionSuccess = true;
+        Logger::Instance().Info("Main", 
+            "Connected to server successfully on attempt " + 
+            std::to_string(attempt) + "!");
+        Logger::Instance().Debug("Main",
+            "Connection state: " + client.GetStateString());
+        break;
+    }
+
+    // Handle connection failure after all retries exhausted
+    if (!connectionSuccess)
     {
         Logger::Instance().Error("Main", 
-            "FATAL: Failed to initiate connection to server");
-        return -1;  // Fatal error - cannot continue
+            "FATAL: Failed to connect to server after " + 
+            std::to_string(maxConnectionAttempts) + " attempts");
+        
+        // Graceful degradation: could implement fallback behavior here
+        // For example:
+        // - Enable offline mode
+        // - Queue operations for later retry
+        // - Trigger monitoring/alerting system
+        // - Start with limited functionality
+        
+        Logger::Instance().Warning("Main", 
+            "Consider implementing graceful degradation or alerting here");
+        
+        return -1;  // Exit application - no fallback implemented yet
     }
-
-    Logger::Instance().Info("Main", 
-        "Waiting for connection to establish...");
-
-    // Block until connection is established or times out
-    if (!client.WaitForConnection(config.connectionTimeoutMs))
-    {
-        Logger::Instance().Error("Main", 
-            "FATAL: Connection failed or timed out after " + 
-            std::to_string(config.connectionTimeoutMs) + "ms");
-        return -1;  // Fatal error - cannot continue
-    }
-
-    Logger::Instance().Info("Main", 
-        "Connected to server successfully!");
-    Logger::Instance().Debug("Main",
-        "Connection state: " + client.GetStateString());
 
     // === PROTOCOL COMMUNICATION ===
 
