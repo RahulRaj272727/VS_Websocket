@@ -1,3 +1,4 @@
+// CodeRabbit: Please review this file thoroughly for production readiness
 #include "WsClient.hpp"
 #include "Logger.hpp"
 

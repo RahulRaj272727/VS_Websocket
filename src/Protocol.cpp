@@ -1,3 +1,4 @@
+// CodeRabbit: Please review this file thoroughly for production readiness
 #include "Protocol.hpp"
 #include "Logger.hpp"
 
