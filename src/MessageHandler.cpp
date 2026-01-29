@@ -74,13 +74,20 @@ void MessageRouter::RouteMessage(const Protocol::Message& msg)
         mHandler->OnProtocolError(msg.content);
         break;
 
-    // Unknown message types are warnings but still route if possible
+    // Unknown message types are protocol violations - report to application
     case Protocol::MessageType::Unknown:
     case Protocol::MessageType::BinaryData:  // Should not arrive as text
     default:
-        Logger::Instance().Warning("MessageRouter", 
-            "Unhandled message type: " + std::to_string(static_cast<int>(msg.type)));
-        // Could optionally call OnProtocolError for truly unknown types
+        {
+            std::string errorMsg = "Unhandled or invalid message type: " + 
+                                   std::to_string(static_cast<int>(msg.type)) +
+                                   " (msgId: " + msg.msgId + ")";
+            
+            Logger::Instance().Warning("MessageRouter", errorMsg);
+            
+            // Notify application of protocol anomaly so it can react
+            mHandler->OnProtocolError(errorMsg);
+        }
         break;
     }
 }
