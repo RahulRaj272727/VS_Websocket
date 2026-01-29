@@ -107,6 +107,26 @@ bool WsClient::Open()
     // Disable automatic reconnection - we handle reconnection at application level
     mImpl->ws.disableAutomaticReconnection();
 
+    // Configure ping/pong heartbeat if enabled (keeps connection alive through load balancers)
+    if (mImpl->config.pingIntervalSeconds > 0)
+    {
+        mImpl->ws.setPingInterval(mImpl->config.pingIntervalSeconds);
+        Logger::Instance().Debug("WsClient", 
+            "Heartbeat enabled: " + std::to_string(mImpl->config.pingIntervalSeconds) + " seconds");
+    }
+
+    // Configure per-message deflate compression if enabled
+    if (mImpl->config.enableCompression)
+    {
+        mImpl->ws.enablePerMessageDeflate();
+        Logger::Instance().Debug("WsClient", 
+            "Per-message deflate compression enabled");
+    }
+    else
+    {
+        mImpl->ws.disablePerMessageDeflate();
+    }
+
     // Set up the message callback - called from IXWebSocket's internal thread
     // when any message event occurs (open, message, close, error)
     mImpl->ws.setOnMessageCallback(
@@ -132,6 +152,20 @@ bool WsClient::Open()
             case ix::WebSocketMessageType::Error:
                 // msg->errorInfo.reason contains error description
                 OnError(msg->errorInfo.reason);
+                break;
+
+            case ix::WebSocketMessageType::Ping:
+                // Ping received - pong is automatically sent by IXWebSocket
+                Logger::Instance().Debug("WsClient", 
+                    "[RECV][PING] " + (msg->str.empty() ? "(empty)" : msg->str));
+                mImpl->messageRouter.RoutePing(msg->str);
+                break;
+
+            case ix::WebSocketMessageType::Pong:
+                // Pong received (response to our ping)
+                Logger::Instance().Debug("WsClient", 
+                    "[RECV][PONG] " + (msg->str.empty() ? "(empty)" : msg->str));
+                mImpl->messageRouter.RoutePong(msg->str);
                 break;
 
             default:
@@ -308,6 +342,43 @@ bool WsClient::SendBinary(const void* pData, size_t pSize)
         "[SEND][BINARY] " + std::to_string(pSize) + " bytes");
     
     return true;
+}
+
+bool WsClient::SendPing(const std::string& payload)
+{
+    // Check connection state before attempting to send
+    {
+        std::lock_guard<std::mutex> lock(mImpl->stateMutex);
+        if (mImpl->state != ConnectionState::Connected)
+        {
+            Logger::Instance().Warning("WsClient", 
+                "Cannot send ping: not connected");
+            return false;
+        }
+    }
+
+    // Send the ping frame (payload limited to 125 bytes per RFC 6455)
+    std::string trimmedPayload = payload.substr(0, 125);
+    mImpl->ws.ping(trimmedPayload);
+    
+    Logger::Instance().Debug("WsClient", 
+        "[SEND][PING] " + (trimmedPayload.empty() ? "(empty)" : trimmedPayload));
+    
+    return true;
+}
+
+void WsClient::EnableCompression()
+{
+    mImpl->ws.enablePerMessageDeflate();
+    Logger::Instance().Info("WsClient", 
+        "Per-message deflate compression enabled");
+}
+
+void WsClient::DisableCompression()
+{
+    mImpl->ws.disablePerMessageDeflate();
+    Logger::Instance().Info("WsClient", 
+        "Per-message deflate compression disabled");
 }
 
 WsClient::ConnectionState WsClient::GetState() const

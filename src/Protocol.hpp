@@ -86,9 +86,16 @@ namespace Protocol
         /// @note Must be > 0 and <= 1GB for safety
         size_t maxBinaryPayloadSize = 100 * 1024 * 1024;
         
-        /// Flag for compression support
-        /// @note Currently reserved for future use - not implemented in current version
+        /// Per-message deflate compression (RFC 7692)
+        /// When enabled, messages are compressed before transmission to reduce bandwidth
+        /// @note Requires both client and server to support compression
         bool enableCompression = false;
+        
+        /// Automatic ping/pong heartbeat interval in seconds (0 = disabled)
+        /// Sends periodic ping frames to keep the connection alive
+        /// Useful when behind load balancers that kill idle connections
+        /// @note Set to 0 to disable automatic heartbeat
+        int pingIntervalSeconds = 0;
         
         /// Protocol version string for compatibility checking (semantic versioning)
         /// @note Currently reserved for future use - not validated in current implementation
@@ -101,7 +108,8 @@ namespace Protocol
             return connectionTimeoutMs > 0 && 
                    messageTimeoutMs > 0 &&
                    maxBinaryPayloadSize > 0 && 
-                   maxBinaryPayloadSize <= 1024ULL * 1024 * 1024;  // 1GB max
+                   maxBinaryPayloadSize <= 1024ULL * 1024 * 1024 &&  // 1GB max
+                   pingIntervalSeconds >= 0;
         }
     };
 

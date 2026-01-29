@@ -3,6 +3,7 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <atomic>
 #include "WsClient.hpp"
 #include "MessageHandler.hpp"
 #include "Logger.hpp"
@@ -190,9 +191,47 @@ public:
         // - Etc.
     }
 
+    /**
+     * @brief Called when a ping frame is received from the server.
+     * 
+     * @param payload The ping payload data
+     */
+    void OnPing(const std::string& payload) override
+    {
+        Logger::Instance().Info("App", 
+            "Received PING from server" + 
+            (payload.empty() ? "" : ": " + payload));
+        ++mPingCount;  // Atomic increment (thread-safe)
+    }
+
+    /**
+     * @brief Called when a pong frame is received (response to our ping).
+     * 
+     * @param payload The pong payload data (echoes our ping payload)
+     */
+    void OnPong(const std::string& payload) override
+    {
+        Logger::Instance().Info("App", 
+            "Received PONG from server" + 
+            (payload.empty() ? "" : ": " + payload));
+        ++mPongCount;  // Atomic increment (thread-safe)
+    }
+
+    /// @brief Get the number of pings received (thread-safe)
+    int GetPingCount() const { return mPingCount.load(); }
+    
+    /// @brief Get the number of pongs received (thread-safe)
+    int GetPongCount() const { return mPongCount.load(); }
+
 private:
     /// Running total of bytes received in current binary transfer
     size_t mTotalBytesReceived = 0;
+    
+    /// Count of ping frames received (atomic for thread safety)
+    std::atomic<int> mPingCount{0};
+    
+    /// Count of pong frames received (atomic for thread safety)
+    std::atomic<int> mPongCount{0};
 };
 
 /**
@@ -232,12 +271,16 @@ int main()
     config.connectionTimeoutMs = 10000;      // Wait up to 10 seconds for connection
     config.messageTimeoutMs = 5000;          // Wait up to 5 seconds for responses
     config.maxBinaryPayloadSize = 100 * 1024 * 1024;  // Allow 100MB binary messages
+    config.enableCompression = true;         // Enable per-message deflate compression
+    config.pingIntervalSeconds = 30;         // Automatic heartbeat every 30 seconds
 
     Logger::Instance().Info("Main", 
         "Configuration: timeout=" + 
         std::to_string(config.connectionTimeoutMs) + "ms, " +
         "maxBinarySize=" + 
-        std::to_string(config.maxBinaryPayloadSize / (1024 * 1024)) + "MB");
+        std::to_string(config.maxBinaryPayloadSize / (1024 * 1024)) + "MB, " +
+        "compression=" + (config.enableCompression ? "ON" : "OFF") + ", " +
+        "heartbeat=" + std::to_string(config.pingIntervalSeconds) + "s");
 
     // Create WebSocket client with configuration
     WsClient client(config);
@@ -447,6 +490,75 @@ int main()
         "Binary payload sent: " + 
         std::to_string(binaryData.size()) + " bytes");
 
+    // === PING/PONG DEMO ===
+
+    Logger::Instance().Info("Main", 
+        "=== PING/PONG Demo ===");
+    
+    // Send a manual ping to the server
+    Logger::Instance().Info("Main", 
+        "Sending manual ping...");
+    
+    if (client.SendPing("manual_ping_1"))
+    {
+        Logger::Instance().Info("Main", 
+            "Ping sent successfully");
+    }
+    else
+    {
+        Logger::Instance().Warning("Main", 
+            "Failed to send ping");
+    }
+
+    // Wait a moment for pong response
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // Send another ping with different payload
+    if (client.SendPing("manual_ping_2"))
+    {
+        Logger::Instance().Info("Main", 
+            "Second ping sent");
+    }
+
+    // === COMPRESSION DEMO ===
+
+    Logger::Instance().Info("Main", 
+        "=== COMPRESSION Demo ===");
+    
+    // Compression is already enabled via config
+    // Let's demonstrate toggling it
+    Logger::Instance().Info("Main", 
+        "Compression is " + std::string(config.enableCompression ? "ENABLED" : "DISABLED"));
+    
+    // Send a text message (will be compressed if enabled)
+    Protocol::Message compressedMsg(
+        Protocol::MessageType::Hello,
+        "msg_003",
+        "This text message is sent with compression enabled");
+    
+    if (client.SendText(Protocol::SerializeJsonMessage(compressedMsg)))
+    {
+        Logger::Instance().Info("Main", 
+            "Sent message (with compression)");
+    }
+
+    // Toggle compression off and send another message
+    client.DisableCompression();
+    
+    Protocol::Message uncompressedMsg(
+        Protocol::MessageType::Hello,
+        "msg_004",
+        "This text message is sent WITHOUT compression");
+    
+    if (client.SendText(Protocol::SerializeJsonMessage(uncompressedMsg)))
+    {
+        Logger::Instance().Info("Main", 
+            "Sent message (without compression)");
+    }
+
+    // Re-enable compression
+    client.EnableCompression();
+
     // === WAIT FOR SERVER RESPONSE ===
 
     Logger::Instance().Info("Main", 
@@ -458,6 +570,15 @@ int main()
 
     Logger::Instance().Info("Main", 
         "Wait period complete");
+
+    // === STATISTICS ===
+    
+    Logger::Instance().Info("Main", 
+        "=== Session Statistics ===");
+    Logger::Instance().Info("Main", 
+        "Pings received: " + std::to_string(appHandler.GetPingCount()));
+    Logger::Instance().Info("Main", 
+        "Pongs received: " + std::to_string(appHandler.GetPongCount()));
 
     // === CLEANUP ===
 

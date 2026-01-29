@@ -224,6 +224,50 @@ public:
     bool SendBinary(const void* pData, size_t pSize);
 
     /**
+     * @brief Send a WebSocket ping frame (thread-safe).
+     * 
+     * Sends a ping frame to the server for keep-alive or latency measurement.
+     * The server should respond with a pong frame. Thread-safe - can be called
+     * from any thread.
+     * 
+     * @param payload Optional ping payload data (max 125 bytes per RFC 6455)
+     * @return true if ping was queued for sending, false if not connected
+     * 
+     * @note Pong responses are handled automatically by IXWebSocket
+     * @note For automatic heartbeat, use pingIntervalSeconds in Config instead
+     * 
+     * @example
+     *   client.SendPing("heartbeat");  // Manual ping
+     * 
+     * @see Config::pingIntervalSeconds for automatic heartbeat
+     */
+    bool SendPing(const std::string& payload = "");
+
+    /**
+     * @brief Enable per-message deflate compression at runtime.
+     * 
+     * Enables compression for subsequent messages. Both client and server must
+     * support compression (RFC 7692) for this to have any effect.
+     * 
+     * @note Call before Connect() for best results; some servers negotiate
+     *       compression only during the initial handshake.
+     * @note Compression adds CPU overhead but reduces bandwidth usage.
+     * 
+     * @see DisableCompression
+     */
+    void EnableCompression();
+
+    /**
+     * @brief Disable per-message deflate compression at runtime.
+     * 
+     * Disables compression for subsequent messages. Useful when sending
+     * already-compressed data (images, video) or on low-power devices.
+     * 
+     * @see EnableCompression
+     */
+    void DisableCompression();
+
+    /**
      * @brief Get the current connection state.
      * 
      * Returns the current state of the connection. This is an atomic read and can

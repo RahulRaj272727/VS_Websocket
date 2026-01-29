@@ -146,3 +146,35 @@ void MessageRouter::RouteProtocolError(const std::string& errorMsg)
         "Routing protocol error: " + errorMsg);
     mHandler->OnProtocolError(errorMsg);
 }
+
+void MessageRouter::RoutePing(const std::string& payload)
+{
+    // Check if a handler is attached
+    if (!mHandler)
+    {
+        Logger::Instance().Debug("MessageRouter", 
+            "No handler set for ping notification");
+        return;
+    }
+
+    // Route ping to handler (informational only - pong is auto-sent by IXWebSocket)
+    Logger::Instance().Debug("MessageRouter", 
+        "Routing ping received" + (payload.empty() ? "" : ": " + payload));
+    mHandler->OnPing(payload);
+}
+
+void MessageRouter::RoutePong(const std::string& payload)
+{
+    // Check if a handler is attached
+    if (!mHandler)
+    {
+        Logger::Instance().Debug("MessageRouter", 
+            "No handler set for pong notification");
+        return;
+    }
+
+    // Route pong to handler
+    Logger::Instance().Debug("MessageRouter", 
+        "Routing pong received" + (payload.empty() ? "" : ": " + payload));
+    mHandler->OnPong(payload);
+}

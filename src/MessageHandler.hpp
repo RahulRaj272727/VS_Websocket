@@ -110,6 +110,30 @@ public:
      * @param reason Human-readable error description
      */
     virtual void OnProtocolError(const std::string& reason) = 0;
+
+    /**
+     * @brief Called when a ping frame is received from the server.
+     * 
+     * Note: The WebSocket library automatically responds with a pong frame,
+     * so you don't need to do anything. This is just for informational purposes.
+     * 
+     * @param payload The ping payload data (may be empty)
+     * 
+     * @note Default implementation does nothing - override if you need ping notifications
+     */
+    virtual void OnPing(const std::string& payload) { (void)payload; }
+
+    /**
+     * @brief Called when a pong frame is received from the server.
+     * 
+     * This is typically in response to a ping sent by SendPing() or automatic heartbeat.
+     * You can use this to measure round-trip latency.
+     * 
+     * @param payload The pong payload data (echoes the ping payload)
+     * 
+     * @note Default implementation does nothing - override if you need pong notifications
+     */
+    virtual void OnPong(const std::string& payload) { (void)payload; }
 };
 
 /**
@@ -196,6 +220,24 @@ public:
      * @param errorMsg Human-readable error description
      */
     void RouteProtocolError(const std::string& errorMsg);
+
+    /**
+     * @brief Route a ping notification to the handler.
+     * 
+     * Called when a ping frame is received from the server.
+     * 
+     * @param payload The ping payload data
+     */
+    void RoutePing(const std::string& payload);
+
+    /**
+     * @brief Route a pong notification to the handler.
+     * 
+     * Called when a pong frame is received from the server.
+     * 
+     * @param payload The pong payload data
+     */
+    void RoutePong(const std::string& payload);
 
 private:
     /// @brief Pointer to the application's message handler (may be null)
