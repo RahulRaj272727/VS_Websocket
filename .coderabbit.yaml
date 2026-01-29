@@ -1,0 +1,86 @@
+# CodeRabbit Configuration for TallyIX WebSocket POC
+# Documentation: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+early_access: false
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/*.md"
+    - "!**/TODO.md"
+  path_instructions:
+    - path: "src/**/*.cpp"
+      instructions: |
+        - Review for thread safety issues, especially mutex usage and synchronization
+        - Check for proper RAII patterns and smart pointer usage
+        - Verify exception safety and resource cleanup
+        - Ensure consistency with project's thread-safe Logger usage
+        - Look for potential race conditions in callback handlers
+    - path: "src/**/*.hpp"
+      instructions: |
+        - Review header guards and include patterns
+        - Check for proper forward declarations
+        - Verify interface design and const-correctness
+        - Ensure Pimpl pattern is used correctly where applicable
+    - path: "src/WsClient.*"
+      instructions: |
+        - Pay special attention to state machine transitions
+        - Review condition variable usage for proper synchronization
+        - Verify mutex protection of shared state
+        - Check callback thread safety
+    - path: "src/Protocol.*"
+      instructions: |
+        - Review JSON parsing logic for edge cases
+        - Check message type handling completeness
+        - Verify protocol version compatibility
+    - path: "**/*.py"
+      instructions: |
+        - Review for Python best practices
+        - Check async/await patterns if used
+        - Verify error handling
+
+chat:
+  auto_reply: true
+
+# C++ specific settings
+knowledge_base:
+  learnings:
+    scope: auto
+  
+# Enable tools for better C++ analysis
+tools:
+  ast-grep:
+    enabled: true
+  
+# Custom review instructions for the project
+instructions: |
+  This is a production-grade C++ WebSocket client using IXWebSocket library.
+  
+  Key architectural principles:
+  1. Thread safety is critical - all shared state must be protected
+  2. Use RAII and smart pointers (no raw pointers)
+  3. Pimpl pattern for implementation hiding
+  4. State machine with condition variables for synchronization
+  5. No blocking operations in callbacks
+  6. All components must use thread-safe Logger
+  
+  Focus areas:
+  - Thread safety and synchronization primitives
+  - Exception safety and resource management
+  - State machine correctness
+  - Protocol message handling completeness
+  - Performance implications of mutex contention
+  - Memory leaks and proper cleanup
+  
+  Standards:
+  - C++17
+  - Visual Studio 2022 (v143 toolchain)
+  - Supports Win32 and x64 platforms
